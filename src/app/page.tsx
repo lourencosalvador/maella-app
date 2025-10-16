@@ -14,17 +14,20 @@ interface FormData {
   servico: string;
   materialOption: string;
   data: Date | null;
+  hora: string;
   mensagem: string;
 }
 
 export default function Home() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [activeSection, setActiveSection] = useState('home');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   
   // Estados do sistema de agendamento
   const [showModal, setShowModal] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [bookings, setBookings] = useState<Record<string, number>>({});
+  const [timeSlots, setTimeSlots] = useState<Record<string, string[]>>({});
   const [formData, setFormData] = useState<FormData>({
     nome: '',
     email: '',
@@ -32,6 +35,7 @@ export default function Home() {
     servico: '',
     materialOption: '',
     data: null,
+    hora: '',
     mensagem: ''
   });
   const [bookingInfo, setBookingInfo] = useState<FormData & {
@@ -46,6 +50,11 @@ export default function Home() {
     const savedBookings = localStorage.getItem('maellaBookings');
     if (savedBookings) {
       setBookings(JSON.parse(savedBookings));
+    }
+    
+    const savedTimeSlots = localStorage.getItem('maellaTimeSlots');
+    if (savedTimeSlots) {
+      setTimeSlots(JSON.parse(savedTimeSlots));
     }
   }, []);
 
@@ -136,12 +145,25 @@ export default function Home() {
     return days;
   };
 
+  // Verificar se horário está disponível
+  const isTimeSlotAvailable = (date: Date, time: string): boolean => {
+    const dateKey = format(startOfDay(date), 'yyyy-MM-dd');
+    const bookedTimes = timeSlots[dateKey] || [];
+    return !bookedTimes.includes(time);
+  };
+
   // Submeter formulário
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     
-    if (!formData.nome || !formData.email || !formData.telefone || !formData.servico || !formData.materialOption || !formData.data) {
+    if (!formData.nome || !formData.email || !formData.telefone || !formData.servico || !formData.materialOption || !formData.data || !formData.hora) {
       alert('Por favor, preencha todos os campos obrigatórios');
+      return;
+    }
+
+    // Verificar se horário ainda está disponível
+    if (!isTimeSlotAvailable(formData.data, formData.hora)) {
+      alert('Este horário foi ocupado recentemente. Por favor, escolha outro horário.');
       return;
     }
 
@@ -153,6 +175,15 @@ export default function Home() {
     };
     setBookings(newBookings);
     localStorage.setItem('maellaBookings', JSON.stringify(newBookings));
+
+    // Atualizar horários ocupados
+    const bookedTimes = timeSlots[dateKey] || [];
+    const newTimeSlots = {
+      ...timeSlots,
+      [dateKey]: [...bookedTimes, formData.hora]
+    };
+    setTimeSlots(newTimeSlots);
+    localStorage.setItem('maellaTimeSlots', JSON.stringify(newTimeSlots));
 
     // Calcular preço
     const price = calculatePrice(formData.servico, formData.materialOption);
@@ -253,6 +284,12 @@ export default function Home() {
     
     y += lineHeight;
     doc.setFont('helvetica', 'bold');
+    doc.text('Horário:', 20, y);
+    doc.setFont('helvetica', 'normal');
+    doc.text(`${bookingInfo.hora} (Horário de Luanda)`, 60, y);
+    
+    y += lineHeight;
+    doc.setFont('helvetica', 'bold');
     doc.text('Materiais:', 20, y);
     doc.setFont('helvetica', 'normal');
     doc.text(bookingInfo.materialTexto, 60, y);
@@ -269,16 +306,16 @@ export default function Home() {
       y += splitMessage.length * 6;
     }
     
-    // Valor total (destaque)
+    // Valor total (destaque com barra preta)
     y += 15;
-    doc.setFillColor(232, 165, 183, 50);
+    doc.setFillColor(13, 13, 13);  // Fundo PRETO
     doc.roundedRect(20, y - 8, 170, 20, 3, 3, 'F');
     
     doc.setFontSize(16);
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(13, 13, 13);
+    doc.setTextColor(255, 255, 255);  // "Valor Total:" BRANCO
     doc.text('Valor Total:', 25, y + 5);
-    doc.setTextColor(199, 126, 148);
+    doc.setTextColor(232, 165, 183);  // Valor em ROSA
     doc.text(bookingInfo.precoFormatado, 165, y + 5, { align: 'right' });
     
     // Informações de contato
@@ -296,15 +333,62 @@ export default function Home() {
     y += 5;
     doc.text('Rua da Elegância, 123 - Luanda, Angola', 105, y, { align: 'center' });
     
-    // Rodapé
-    y += 10;
-    doc.setFontSize(8);
-    doc.setTextColor(150, 150, 150);
-    doc.text('Este documento é um comprovativo de agendamento. Por favor, apresente-o no dia do seu atendimento.', 105, y, { align: 'center' });
+    // Logo Maella no final (imagem real)
+    y += 15;
     
-    // Salvar PDF
-    const fileName = `Maella_Agendamento_${bookingInfo.nome.replace(/\s+/g, '_')}_${format(new Date(), 'ddMMyyyy')}.pdf`;
-    doc.save(fileName);
+    // Carregar e adicionar a logo
+    const logoImg = document.createElement('img');
+    logoImg.src = '/assets/image/logo-app.png';
+    
+    logoImg.onload = () => {
+      // Adicionar logo centralizada (50x50mm)
+      doc.addImage(logoImg, 'PNG', 80, y, 50, 50);
+      
+      // Ornamento decorativo abaixo da logo
+      const finalY = y + 55;
+      doc.setDrawColor(232, 165, 183);
+      doc.setLineWidth(0.3);
+      doc.line(70, finalY, 140, finalY);
+      
+      // Rodapé
+      doc.setFontSize(8);
+      doc.setTextColor(150, 150, 150);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Este documento é um comprovativo de agendamento. Por favor, apresente-o no dia do seu atendimento.', 105, finalY + 5, { align: 'center' });
+      
+      // Salvar PDF após carregar a imagem
+      const fileName = `Maella_Agendamento_${bookingInfo.nome.replace(/\s+/g, '_')}_${format(new Date(), 'ddMMyyyy')}.pdf`;
+      doc.save(fileName);
+    };
+    
+    logoImg.onerror = () => {
+      // Se falhar ao carregar a imagem, usar texto como fallback
+      doc.setFontSize(48);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(232, 165, 183);
+      doc.text('Maella', 105, y, { align: 'center' });
+      
+      y += 8;
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'italic');
+      doc.setTextColor(150, 150, 150);
+      doc.text('Onde a Beleza tem Luz Própria', 105, y, { align: 'center' });
+      
+      y += 6;
+      doc.setDrawColor(232, 165, 183);
+      doc.setLineWidth(0.3);
+      doc.line(75, y, 135, y);
+      
+      y += 6;
+      doc.setFontSize(8);
+      doc.setTextColor(150, 150, 150);
+      doc.text('Este documento é um comprovativo de agendamento. Por favor, apresente-o no dia do seu atendimento.', 105, y, { align: 'center' });
+      
+      const fileName = `Maella_Agendamento_${bookingInfo.nome.replace(/\s+/g, '_')}_${format(new Date(), 'ddMMyyyy')}.pdf`;
+      doc.save(fileName);
+    };
+    
+    // Não salvar aqui, esperar a imagem carregar
   };
 
   return (
@@ -363,15 +447,66 @@ export default function Home() {
               ))}
             </ul>
 
-            {/* CTA Button */}
+            {/* CTA Button Desktop */}
             <button 
               onClick={() => scrollToSection('contato')}
               className="hidden lg:block px-6 py-2.5 bg-gradient-to-r from-maella-rose to-maella-rose-dark text-maella-black font-serif font-semibold rounded-full hover:shadow-lg hover:shadow-maella-rose/50 transition-all duration-300 hover:scale-105"
             >
               Agende Agora
             </button>
+
+            {/* Menu Hamburguer Mobile */}
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="md:hidden relative w-10 h-10 flex flex-col items-center justify-center space-y-1.5 focus:outline-none"
+              aria-label="Menu"
+            >
+              <span className={`block w-6 h-0.5 bg-maella-rose transition-all duration-300 ${mobileMenuOpen ? 'rotate-45 translate-y-2' : ''}`}></span>
+              <span className={`block w-6 h-0.5 bg-maella-rose transition-all duration-300 ${mobileMenuOpen ? 'opacity-0' : ''}`}></span>
+              <span className={`block w-6 h-0.5 bg-maella-rose transition-all duration-300 ${mobileMenuOpen ? '-rotate-45 -translate-y-2' : ''}`}></span>
+            </button>
           </div>
         </nav>
+
+        {/* Menu Mobile */}
+        <div className={`md:hidden glass transition-all duration-500 overflow-hidden ${
+          mobileMenuOpen ? 'max-h-screen opacity-100' : 'max-h-0 opacity-0'
+        }`}>
+          <div className="px-6 py-4 space-y-4">
+            {[
+              { id: 'home', label: 'Home' },
+              { id: 'servicos', label: 'Serviços' },
+              { id: 'sobre', label: 'Sobre Nós' },
+              { id: 'galeria', label: 'Galeria' },
+              { id: 'contato', label: 'Contato' }
+            ].map((item) => (
+              <button
+                key={item.id}
+                onClick={() => {
+                  scrollToSection(item.id);
+                  setMobileMenuOpen(false);
+                }}
+                className={`block w-full text-left font-serif text-lg py-2 transition-colors ${
+                  activeSection === item.id 
+                    ? 'text-maella-rose' 
+                    : 'text-maella-white/80'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+            
+            <button 
+              onClick={() => {
+                scrollToSection('contato');
+                setMobileMenuOpen(false);
+              }}
+              className="w-full px-6 py-3 bg-gradient-to-r from-maella-rose to-maella-rose-dark text-maella-black font-serif font-semibold rounded-full hover:shadow-lg hover:shadow-maella-rose/50 transition-all duration-300"
+            >
+              Agende Agora
+            </button>
+          </div>
+        </div>
       </header>
 
       {/* Hero Section */}
@@ -422,7 +557,7 @@ export default function Home() {
           </div>
 
           {/* Scroll Indicator */}
-          <div className="absolute bottom-10 left-1/2 transform -translate-x-1/2 animate-bounce">
+          <div className="absolute -bottom-30 left-1/2 transform -translate-x-1/2 animate-bounce">
             <div className="w-6 h-10 border-2 border-maella-rose rounded-full flex items-start justify-center p-2">
               <div className="w-1.5 h-3 bg-maella-rose rounded-full animate-pulse"></div>
             </div>
@@ -606,73 +741,181 @@ export default function Home() {
             </p>
           </div>
 
-          {/* Gallery Grid - EASY TO EDIT */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* Gallery Grid - Pinterest Style Layout */}
+          <div className="columns-1 md:columns-2 lg:columns-3 xl:columns-4 gap-6 space-y-6">
             {/* 
-              Para adicionar mais imagens ou alterar:
-              1. Copie o bloco abaixo
-              2. Altere o 'src' com o caminho da nova imagem
-              3. Altere o 'alt' com a descrição
-              4. Ajuste 'rowSpan' para imagens maiores (valores: 1, 2)
+              Layout estilo Pinterest/Masonry - As imagens se organizam automaticamente
+              Para adicionar mais imagens, basta adicionar um novo bloco
             */}
             
-            {[
-              { 
-                src: "/assets/image/Moça Negra Com Trança.jpg", 
-                alt: "Tranças Box Braids", 
-                rowSpan: 2 
-              },
-              { 
-                src: "/assets/image/Moça Negra com Trança (1).jpg", 
-                alt: "Tranças Artísticas", 
-                rowSpan: 1 
-              },
-              { 
-                src: "/assets/image/Cabelo trançado escuro.jpg", 
-                alt: "Cornrows Elegantes", 
-                rowSpan: 1 
-              },
-              { 
-                src: "/assets/image/Ornamento redondo preto e cinza.jpg", 
-                alt: "Decoração Maella", 
-                rowSpan: 1 
-              },
-              { 
-                src: "/assets/image/logo-app.png", 
-                alt: "Maella Logo", 
-                rowSpan: 1 
-              },
-              { 
-                src: "/assets/image/fundo.jpg", 
-                alt: "Ambiente Maella", 
-                rowSpan: 2 
-              },
-            ].map((item, index) => (
-              <div 
-                key={index}
-                className={`group relative overflow-hidden rounded-2xl glass cursor-pointer ${
-                  item.rowSpan === 2 ? 'md:row-span-2' : ''
-                }`}
-                style={{minHeight: item.rowSpan === 2 ? '500px' : '250px'}}
-        >
-          <Image
-                  src={item.src} 
-                  alt={item.alt} 
+            {/* Imagem 1 */}
+            <div className="group relative overflow-hidden rounded-2xl glass cursor-pointer break-inside-avoid mb-6">
+              <div className="relative h-96">
+                <Image 
+                  src="/assets/image/Moça Negra Com Trança.jpg" 
+                  alt="Box Braids Longas" 
                   fill
                   className="object-cover transition-transform duration-700 group-hover:scale-110"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-maella-black via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500">
                   <div className="absolute bottom-0 left-0 right-0 p-6">
-                    <p className="font-serif text-xl text-maella-white font-semibold">
-                      {item.alt}
-                    </p>
+                    <p className="font-serif text-xl text-maella-white font-semibold">Box Braids Longas</p>
+                    <p className="font-sans text-sm text-maella-white/80 mt-1">Estilo clássico e atemporal</p>
                   </div>
                 </div>
                 <div className="absolute top-4 right-4 w-12 h-12 bg-maella-rose rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transform scale-0 group-hover:scale-100 transition-all duration-300">
-                  <span className="text-2xl">+</span>
+                  <span className="text-2xl text-maella-black">+</span>
                 </div>
               </div>
-            ))}
+            </div>
+
+            {/* Imagem 2 */}
+            <div className="group relative overflow-hidden rounded-2xl glass cursor-pointer break-inside-avoid mb-6">
+              <div className="relative h-72">
+                <Image 
+                  src="/assets/image/gallery1.jpg" 
+                  alt="Tranças Artísticas" 
+                  fill
+                  className="object-cover transition-transform duration-700 group-hover:scale-110"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-maella-black via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+                  <div className="absolute bottom-0 left-0 right-0 p-6">
+                    <p className="font-serif text-xl text-maella-white font-semibold">Tranças Artísticas</p>
+                    <p className="font-sans text-sm text-maella-white/80 mt-1">Criatividade e beleza</p>
+                  </div>
+                </div>
+                <div className="absolute top-4 right-4 w-12 h-12 bg-maella-rose rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transform scale-0 group-hover:scale-100 transition-all duration-300">
+                  <span className="text-2xl text-maella-black">+</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Imagem 3 */}
+            <div className="group relative overflow-hidden rounded-2xl glass cursor-pointer break-inside-avoid mb-6">
+              <div className="relative h-64">
+                <Image 
+                  src="/assets/image/Cabelo trançado escuro.jpg" 
+                  alt="Cornrows Elegantes" 
+                  fill
+                  className="object-cover transition-transform duration-700 group-hover:scale-110"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-maella-black via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+                  <div className="absolute bottom-0 left-0 right-0 p-6">
+                    <p className="font-serif text-xl text-maella-white font-semibold">Cornrows Elegantes</p>
+                    <p className="font-sans text-sm text-maella-white/80 mt-1">Tradição e modernidade</p>
+                  </div>
+                </div>
+                <div className="absolute top-4 right-4 w-12 h-12 bg-maella-rose rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transform scale-0 group-hover:scale-100 transition-all duration-300">
+                  <span className="text-2xl text-maella-black">+</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Imagem 4 */}
+            <div className="group relative overflow-hidden rounded-2xl glass cursor-pointer break-inside-avoid mb-6">
+              <div className="relative h-[420px]">
+                <Image 
+                  src="/assets/image/gallery2.jpg" 
+                  alt="Penteado Especial" 
+                  fill
+                  className="object-cover transition-transform duration-700 group-hover:scale-110"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-maella-black via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+                  <div className="absolute bottom-0 left-0 right-0 p-6">
+                    <p className="font-serif text-xl text-maella-white font-semibold">Penteado Especial</p>
+                    <p className="font-sans text-sm text-maella-white/80 mt-1">Para momentos únicos</p>
+                  </div>
+                </div>
+                <div className="absolute top-4 right-4 w-12 h-12 bg-maella-rose rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transform scale-0 group-hover:scale-100 transition-all duration-300">
+                  <span className="text-2xl text-maella-black">+</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Imagem 5 */}
+            <div className="group relative overflow-hidden rounded-2xl glass cursor-pointer break-inside-avoid mb-6">
+              <div className="relative h-80">
+                <Image 
+                  src="/assets/image/Moça Negra com Trança (1).jpg" 
+                  alt="Fulani Braids" 
+                  fill
+                  className="object-cover transition-transform duration-700 group-hover:scale-110"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-maella-black via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+                  <div className="absolute bottom-0 left-0 right-0 p-6">
+                    <p className="font-serif text-xl text-maella-white font-semibold">Fulani Braids</p>
+                    <p className="font-sans text-sm text-maella-white/80 mt-1">Sofisticação africana</p>
+                  </div>
+                </div>
+                <div className="absolute top-4 right-4 w-12 h-12 bg-maella-rose rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transform scale-0 group-hover:scale-100 transition-all duration-300">
+                  <span className="text-2xl text-maella-black">+</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Imagem 6 */}
+            <div className="group relative overflow-hidden rounded-2xl glass cursor-pointer break-inside-avoid mb-6">
+              <div className="relative h-64">
+                <Image 
+                  src="/assets/image/gallery3.jpg" 
+                  alt="Tranças Coloridas" 
+                  fill
+                  className="object-cover transition-transform duration-700 group-hover:scale-110"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-maella-black via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+                  <div className="absolute bottom-0 left-0 right-0 p-6">
+                    <p className="font-serif text-xl text-maella-white font-semibold">Tranças Coloridas</p>
+                    <p className="font-sans text-sm text-maella-white/80 mt-1">Ouse ser você mesma</p>
+                  </div>
+                </div>
+                <div className="absolute top-4 right-4 w-12 h-12 bg-maella-rose rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transform scale-0 group-hover:scale-100 transition-all duration-300">
+                  <span className="text-2xl text-maella-black">+</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Imagem 7 */}
+            <div className="group relative overflow-hidden rounded-2xl glass cursor-pointer break-inside-avoid mb-6">
+              <div className="relative h-96">
+                <Image 
+                  src="/assets/image/gallery4.jpg" 
+                  alt="Box Braids Médias" 
+                  fill
+                  className="object-cover transition-transform duration-700 group-hover:scale-110"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-maella-black via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+                  <div className="absolute bottom-0 left-0 right-0 p-6">
+                    <p className="font-serif text-xl text-maella-white font-semibold">Box Braids Médias</p>
+                    <p className="font-sans text-sm text-maella-white/80 mt-1">Versátil e elegante</p>
+                  </div>
+                </div>
+                <div className="absolute top-4 right-4 w-12 h-12 bg-maella-rose rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transform scale-0 group-hover:scale-100 transition-all duration-300">
+                  <span className="text-2xl text-maella-black">+</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Imagem 8 */}
+            <div className="group relative overflow-hidden rounded-2xl glass cursor-pointer break-inside-avoid mb-6">
+              <div className="relative h-72">
+                <Image 
+                  src="/assets/image/gallery5.jpg" 
+                  alt="Twist Moderno" 
+                  fill
+                  className="object-cover transition-transform duration-700 group-hover:scale-110"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-maella-black via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+                  <div className="absolute bottom-0 left-0 right-0 p-6">
+                    <p className="font-serif text-xl text-maella-white font-semibold">Twist Moderno</p>
+                    <p className="font-sans text-sm text-maella-white/80 mt-1">Praticidade com estilo</p>
+                  </div>
+                </div>
+                <div className="absolute top-4 right-4 w-12 h-12 bg-maella-rose rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transform scale-0 group-hover:scale-100 transition-all duration-300">
+                  <span className="text-2xl text-maella-black">+</span>
+                </div>
+              </div>
+            </div>
+
           </div>
 
           {/* CTA */}
@@ -865,42 +1108,34 @@ export default function Home() {
                   <label className="block font-serif text-maella-white mb-3">
                     Materiais <span className="text-maella-rose">*</span>
                   </label>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <button
-                      type="button"
-                      onClick={() => setFormData({...formData, materialOption: 'meus-materiais'})}
-                      className={`p-4 rounded-lg border-2 transition-all duration-300 ${
-                        formData.materialOption === 'meus-materiais'
-                          ? 'border-maella-rose bg-maella-rose/10'
-                          : 'border-maella-rose/30 hover:border-maella-rose/50'
-                      }`}
-                    >
-                      <div className="text-3xl mb-2">💼</div>
-                      <h5 className="font-serif font-semibold text-maella-white mb-1">
-                        Meus Materiais
-                      </h5>
-                      <p className="text-sm text-maella-white/70">
-                        Trago meus próprios produtos
-                      </p>
-                    </button>
+                  <div className="space-y-3">
+                    <label className="flex items-center space-x-3 cursor-pointer group">
+                      <input
+                        type="radio"
+                        name="materialOption"
+                        value="meus-materiais"
+                        checked={formData.materialOption === 'meus-materiais'}
+                        onChange={(e) => setFormData({...formData, materialOption: e.target.value})}
+                        required
+                      />
+                      <span className="font-serif text-maella-white group-hover:text-maella-rose transition-colors">
+                        Trago meus próprios materiais (preço base)
+                      </span>
+                    </label>
 
-                    <button
-                      type="button"
-                      onClick={() => setFormData({...formData, materialOption: 'materiais-salao'})}
-                      className={`p-4 rounded-lg border-2 transition-all duration-300 ${
-                        formData.materialOption === 'materiais-salao'
-                          ? 'border-maella-rose bg-maella-rose/10'
-                          : 'border-maella-rose/30 hover:border-maella-rose/50'
-                      }`}
-                    >
-                      <div className="text-3xl mb-2">✨</div>
-                      <h5 className="font-serif font-semibold text-maella-white mb-1">
-                        Materiais do Salão
-                      </h5>
-                      <p className="text-sm text-maella-white/70">
-                        +30% no valor final
-                      </p>
-                    </button>
+                    <label className="flex items-center space-x-3 cursor-pointer group">
+                      <input
+                        type="radio"
+                        name="materialOption"
+                        value="materiais-salao"
+                        checked={formData.materialOption === 'materiais-salao'}
+                        onChange={(e) => setFormData({...formData, materialOption: e.target.value})}
+                        required
+                      />
+                      <span className="font-serif text-maella-white group-hover:text-maella-rose transition-colors">
+                        Usar materiais do salão <span className="text-maella-rose">(+30% no valor final)</span>
+                      </span>
+                    </label>
                   </div>
                 </div>
 
@@ -978,6 +1213,38 @@ export default function Home() {
                     </div>
                   </div>
                 </div>
+
+                {/* Seleção de Horário - Aparece após selecionar data */}
+                {selectedDate && (
+                  <div>
+                    <label className="block font-serif text-maella-white mb-3">
+                      Selecione o Horário <span className="text-maella-rose">*</span>
+                    </label>
+                    <select
+                      value={formData.hora}
+                      onChange={(e) => setFormData({...formData, hora: e.target.value})}
+                      className="w-full px-4 py-3 bg-maella-charcoal border border-maella-rose/30 rounded-lg text-maella-white focus:border-maella-rose focus:outline-none transition-colors"
+                      required
+                    >
+                      <option value="">Escolha um horário</option>
+                      {['07:00', '08:00', '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00', '17:00', '18:00'].map((time) => {
+                        const isAvailable = isTimeSlotAvailable(selectedDate, time);
+                        return (
+                          <option 
+                            key={time} 
+                            value={time}
+                            disabled={!isAvailable}
+                          >
+                            {time} {!isAvailable ? '(Ocupado)' : ''}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <p className="mt-2 text-sm text-maella-white/60 font-sans">
+                      Horário de Luanda, Angola (WAT - UTC+1) • Das 07:00 às 18:00
+                    </p>
+                  </div>
+                )}
 
                 <div>
                   <label className="block font-serif text-maella-white mb-2">Observações</label>
@@ -1063,6 +1330,10 @@ export default function Home() {
                   <div className="flex justify-between">
                     <span className="font-serif text-maella-white/70">Data:</span>
                     <span className="font-serif text-maella-white font-semibold">{bookingInfo.dataFormatada}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="font-serif text-maella-white/70">Horário:</span>
+                    <span className="font-serif text-maella-white font-semibold">{bookingInfo.hora} (Luanda)</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="font-serif text-maella-white/70">Materiais:</span>
